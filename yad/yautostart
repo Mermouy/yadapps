@@ -1,0 +1,64 @@
+#! /bin/bash
+# +------------------------------------------------------------+
+# | MerMouY mermouy[at]gmail[dot]com
+# |
+# | This program is free software; you can redistribute it and/or
+# | modify it under the terms of the GNU General Public License
+# | as published by the Free Software Foundation; either version
+# | 3 of the License, or (at your option) any later version.
+# |
+# | This program is distributed in the hope that it will be useful,
+# | but WITHOUT ANY WARRANTY; without even the implied warranty
+# | of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+# | See the GNU General Public License for more details.
+# |
+# | You should have received a copy of the GNU General Public
+# | License along with this program; if not, write to the
+# | Free Software Foundation, Inc., 51 Franklin St,
+# | Fifth Floor, Boston, MA  02110-1301  USA
+# +------------------------------------------------------------+
+
+ #Variables:
+yadopt='--title="Yautostart" --windows-icon="gtk-edit" --center'
+AutoHome=${XDG_CONFIG_HOME:-$HOME}
+results=$(mktemp --tmpdir autostart.XXXXXXXXXX)
+
+ #Choose autostart folder
+Config_dir=$(yad $yadopt --form --button="Ok":0  --button="Cancel":1 --field="Select autostart folder you want to modify: ":CB "kde"\!"gnome"\!"^Any freedesktop"\!"Other folder"  | cut -d "|" -f 1)
+if [ "$?" = "0" ];then
+	case $Config_dir in
+		"kde") config_dir="$AutoHome/.kde4/Autostart" ;;
+		"gnome") config_dir="$AutoHome/.config/gnome/autostart" ;;
+		"Any freedesktop") config_dir="$AutoHome/.config/autostart" ;;
+		"Other folder") config_dir=$(yad $yadopt --file-selection --directory --height=600 --width=800) ;;
+	esac
+else
+	exit 1
+fi
+for f in $config_dir/*.desktop; do
+    grep -m 1 -e '^[[:blank:]]*Exec' $f | cut -d = -f 2
+    grep -m 1 -e '^[[:blank:]]*Name' $f | cut -d = -f 2
+    grep -m 1 -e '^[[:blank:]]*Comment' $f | cut -d = -f 2
+done | yad --width=500 --height=300 --title="Autostart editor" --image="gtk-execute" \
+           --text="Add/remove autostart items (right-click to add first ones)" --list --editable --print-all \
+           --multiple --column="Command" --column="Name" --column="Description" > $results
+
+if [[ ${PIPESTATUS[1]} -eq 0 ]]; then
+    rm -f $config_dir/*.desktop
+    cat $results | while read line; do
+        eval $(echo $line | awk -F'|' '{printf "export NAME=\"%s\" COMMENT=\"%s\" COMMAND=\"%s\"", $2, $3, $1}')
+        cat > $config_dir/$NAME.desktop << EOF
+[Desktop Entry]
+Encoding=UTF-8
+Name=$NAME
+Comment=$COMMENT
+Exec=$COMMAND
+StartupNotify=true
+Terminal=false
+EOF
+    done
+    unset NAME COMMENT COMMAND
+fi
+
+rm -f $results
+exit 0

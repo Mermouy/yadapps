@@ -1,0 +1,30 @@
+#! /bin/bash
+#MerMouY
+#Gpl3
+
+#Variables
+Difftool=kompare
+#Difftool=meld
+yadopt="--center -always-print-result"
+if [ ! -z "$1" ];then
+	File2edit="$1"
+fi
+
+if [ -z "$File2edit" ]; then
+	File2editdial=$(yad $yadopt --width=500 --height=100 --window-icon="gtk-open" --title="Select file to Yadit:" --form --field="Select file to edit":FL "$HOME" --field="Make a diff before applying changes?":CHK TRUE  --align=right)
+	if [ "$?" = "1" ];then
+		exit 0
+	fi
+	File2edit=$(echo "$File2editdial" | cut -d "|" -f1)
+ 	rep=$(echo "$File2editdial" | cut -d "|" -f2)
+fi
+
+Editor=$(yad $yadopt --width=800 --height=600 image="gtk-edit" --window-icon="gtk-edit"  --text-info --title="Yadit: \"$File2edit\"" --filename="$File2edit" --editable --text="Edit "$File2edit" here, then click save:" --button=Cancel:1 --button=Save:0 --wrap | exit 0)
+if [ "$?" = "0" ];then
+	echo "$Editor" > /tmp/File2edit
+	if [ "$rep" = "TRUE" ];then
+		kompare -c /tmp/File2edit $File2edit
+	else
+		mv /tmp/File2edit "$File2edit"
+	 fi
+fi

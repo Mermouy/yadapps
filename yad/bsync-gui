@@ -1,0 +1,116 @@
+#!/bin/bash
+# Yad Interface for bsync util
+# Require:
+# Bsync, yad
+# You can find bsync at https://github.com/dooblem/bsync
+
+Author="MerMouY"
+Licence="GPL 3"
+Version="0.1"
+
+## Edit to your needs: ##
+bsdir="$HOME/.bsync-gui"
+yad=`which yad`
+bsync=`which bsync`
+
+### Other Variables
+yadopt='--title=Bsync-gui --window-icon="/usr/share/icons/default.kde4/64x64/actions/system-switch-user.png" --width=600 --height=400 --text-align=fill --always-print-result --center'
+yadoptmini='--title=Bsync-gui --window-icon="gtk-help" --text-align=fill --always-print-result --center'
+Head="$0\nVersion: $Version by $Author"
+Licence="Gpl 3"
+
+Helptxt='<span font_style="oblique" font_size="large">This is just a simple gui for bsync command available at:</span>
+<a href="https://github.com/dooblem/bsync">https://github.com/dooblem/bsync</a>
+
+<b>USAGE: $0 [Options] CMD</b>
+But you should nt...
+<span color="green">Remember... It `s just a gui... </span>
+
+<u><b>Where CMD is one of: </b></u>
+
+--new			-->		Create New Synchronisation
+--[One of your config] 	-->		Run Sync named [].desktop
+
+<i>Soon:</i>
+--tray				-->		Applet to run your Sync from systray
+--ssh 				-->		Based on fuse libs so many possibilities...
+
+Bsync-gui create  a folder in "$HOME/.bsync-gui", you can change this in main script
+editing "bsdir" Variable.'
+
+## Other variables
+Type='Application'
+NewSync="[Desktop Entry]\nType=$Type\nVersion=$Version\nName=New Sync\nGenericName=New Sync Folder\nComment=Add new folders to Sync\nExec=\"$0 Nouvelle\"\nIcon=text-plain\nTerminal=false\Categories=Settings;System;Utility;Development;"
+Sshc=$(ssh -l $USER -p $Port $Serveur $DDir)
+Deskfilelist="$(/usr/bin/ls $bsdir | sed -e 's/.desktop//g')"
+
+# Exit & clean Functions
+function Exitk() {
+	if [ ! -z "$monpidou" ];then kill "$monpidou" && exit 0;fi
+}
+
+function YsHelp() {
+	$yad $yadopt --text="<span style=red>$1</span>\n\n$Head\n$License\n$Helptxt"
+}
+
+# First desktop file
+if [ ! -f "$bsdir/NewSync.desktop" ]; then
+  mkdir -p "$bsdir"
+  echo -e "$NewSync" > "$bsdir/NewSync.desktop"
+fi
+
+# Verify desktop files exists, if so, run it
+function VerifExist() {
+if [ ! -z `echo "$Deskfilelist" | grep "$1"` ]; then
+		Bscommand=$(cat "$bsdir/$1.desktop" | grep "exec" | sed -e 's/"//g' | cut -d "=" -f2)
+		$Bscommand | $yad $yadopt --progress --pulsate --auto-close --auto-kill --button=Cancel:"kill $monpid" --button="To Tray":2
+		if [ "$?" = "1" ];then
+			$yad $yadoptmini --text="$1 Synchronized..." --kill-parent
+			kill $monpidou
+			exit 0
+		else
+			$yad $yadopt --text="Error while executing $Bscommand from $1..." --icon=gtk-error --timeout=2 --no-buttons
+			exit 1
+		fi
+fi
+}
+
+##Selct Windows choose a conf file or create new one
+$yad --image="gtk-execute" --icons --text="Choose a Sync configuration or create a new one: " $yadopt --item-width=128 --single-click --button=Exit:1 --button=New:0 --button=run:2 --read-dir="$HOME/.bsync-gui"
+
+if [ "$?" = "1" ];then
+	Exitk
+elif  [ "$?" = "0" ];then
+	DeskfileCreation=$($yad $yadopt --form --text="Edit your Synchronized Folders: " \
+--field=Name "MySync" \
+--field=Comment "Your tiny description" \
+--field="Source Folder: ":DIR "$HOME" \
+--field="Destination Folder: ":DIR "$HOME" \
+--field="Choose Icon: ":fl /usr/share/icons/gnome/ \
+--field="Few More Options: ":lbl \
+--field="Option 1":chk false \
+--field="Option 2":chk false \
+--field="Option 3":chk false \
+--field="Preview desktop file":fbtn Preview '@echo "11:#[Desktop Entry]\nType=Application\nVersion=0.1\nName=%1\nGenericName=%1\nComment=%2\nExec=$0 %1\nIcon=%5\nTerminal=false\nCategories=Settings;System;Utility;Development;"' \
+--field=Preview:txt "No configuration yet..." --image="gtk-execute" --buttons-layout="spread")
+
+	if [ "$?" = "1" ];then
+		$yad $yadoptmini --text="<b>Cancelled by user...</b>" --no-buttons --timeout=1
+		bash $0
+	else
+		DeskCreationClean=$(echo "$DeskfileCreation" | sed -e 's/||/|/g' | sed -e 's/|/\n/g')
+		Name=$(echo -e "$DeskCreationClean" | grep "GenericName" | cut -d = -f2)
+		DeskfileContent=$(echo -e "$DeskCreationClean" | cut -d "#" -f2)
+		echo -e "$DeskfileContent" | $yad $yadopt --text-info --text="<b>Verify informations here, then click ok to create the new synchronisation Configuration</b>\nYou can also edit the file from here: " --button=Cancel:1  --button=Write:0
+# Desktop File Creation
+		if [ "$?" = "0" ];then
+			echo -e "$DeskFileContent" > $bsdir/$Name.desktop || YsHelp "Echo error"
+			$yad $yadoptmini --text="$bsdir/$Name.desktop Created" --buttons=Ok:$0
+		else
+			$yad $yadoptmini --text="<b>Cancelled by user...</b>" --no-buttons --timeout=1
+			bash $0
+		fi
+	fi
+else
+	 $yad $yadoptmini --text="Super"
+fi

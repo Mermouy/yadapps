@@ -1,0 +1,429 @@
+#!/usr/bin/env bash
+# Copyright (c) 2012 fbt <fbt@fleshless.org>
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+# 	- Redistributions of source code must retain the above copyright notice,
+#		this list of conditions and the following disclaimer.
+# 	- Redistributions in binary form must reproduce the above copyright notice,
+#		this list of conditions and the following disclaimer in the
+#		documentation and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+# IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+# FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
+# IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
+# OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+# Config
+
+# Functions
+
+watchman.usage() {
+	echo "Usage: watchman [flags] <service> <action>"
+	echo "Flags:"
+	echo "	-u, --user		Force user mode"
+	echo "	-s, --system	Force system mode"
+	echo "	-h, --help		Show this message"
+	echo "	-v, --verbose	Verbose output"
+}
+
+watchman.getopt() {
+	local keys
+
+	for i in "$@"; do
+		case "$i" in
+			--*) echo "$i";;
+
+			-*)
+				keys=( `echo "${i##*-}" | fold -w1` )
+
+				[[ "${#keys[@]}" -gt 1 ]] && {
+					for k in ${keys[@]}; do
+						echo "-${k}"
+					done
+				} || {
+					echo "$i"
+				}
+			;;
+
+			*) echo "$i";;
+		esac
+	done
+}
+
+watchman.args() {
+	while [[ "$1" ]]; do
+		case "$1" in
+			-u|--user) flag_user='1';;
+			-s|--system) unset flag_user;;
+			-h|--help) watchman.usage; exit 0;;
+			-v|--verbose) flag_verbose='1';;
+
+			-t|--test) watchman.msg "(debug) test='$2'"; shift;;
+
+			-*)
+				watchman.err "Invalid key: $1"
+				watchman.usage
+				return 1
+			;;
+
+			*) args+=( "$1" );;
+		esac
+		shift
+	done
+}
+
+watchman.msg() { echo "[watchman] $1"; }
+watchman.err() { watchman.msg "(error) $1"; }
+watchman.debug() {
+	[[ "$flag_verbose" ]] && {
+		watchman.msg "{v} $1"
+	}
+}
+
+watchman.init() {
+	[[ "$UID" == '0' ]] || { flag_user='1'; }
+	watchman.args "$@" || { return 3; }
+
+	[[ "$flag_user" ]] && {
+		cfg_dir="${cfg_dir_user:-$HOME/.watchman}"
+		cfg_rundir="${cfg_rundir:-/tmp/$USER/watchman/run}"
+		cfg_logdir="${cfg_logdir:-$HOME/.local/var/log/watchman}"
+	} || {
+		cfg_dir="${cfg_dir_system:-/etc/watchman}"
+		cfg_rundir="${cfg_rundir:-/run/watchman}"
+		cfg_logdir="${cfg_logdir:-/var/log/watchman}"
+	}
+
+	cfg_initdir="$cfg_dir/init.d"
+
+	cfg_init_dirs+=( "$cfg_dir" "$cfg_rundir" "$cfg_initdir" "$cfg_logdir" )
+
+	for i in "${cfg_init_dirs[@]}"; do
+		[[ -e "$i" ]] || {
+			watchman.debug "$i does not exist, creating..."
+			mkdir -p "$i" || {
+				watchman.err "Can't create $i!"
+			}
+		}
+	done
+
+	[[ -e "$cfg_cfgdir/conf.d" ]] && {
+		for i in `ls cfg_cfgdir/config.d`; do
+			source "$cfg_cfgdir/conf.d/$i"
+		done
+	}
+
+	return 0
+}
+
+watchman.start() {
+	watchman.status && {
+		watchman.err "$service_name is already running"
+		return 7
+	}
+
+	[[ "$service_command" ]] || { service_command=`which "$service_name"`; }
+	[[ "$service_command" ]] || {
+		watchman.err "Please specify what to run with \$service_command"
+	}
+
+	[[ "$service_workdir" ]] && { cd "$service_workdir"; }
+
+	:>"$service_logfile" 2>/dev/null || {
+		watchman.msg "Warning! Logfile is not writeable! Defaulting to /dev/null"
+		service_logfile='/dev/null'
+	}
+
+	[[ "$service_username" ]] && {
+		[[ "$UID" == '0' ]] || {
+			watchman.err "You can't use \$service_username if you are not root!"
+			return 19
+		}
+		su -s "$BASH" "$service_username" -c "$service_command $service_args" &>"$service_logfile" &
+	} || {
+		"$service_command" $service_args &>"$service_logfile" &
+	}
+
+	case "$service_type" in
+		oneshot)
+			:>"$cfg_rundir/${service_name}.done" || {
+				watchman.msg "Warning! Can't mark ${service_name} as enabled."
+			}
+			watchman.msg "$service_name enabled"
+		;;
+
+		*)
+			[[ "$service_pidfile" ]] && {
+				[[ -f "$service_pidfile" ]] && {
+					service_pid=`<${service_pidfile}`
+
+					kill -0 "$service_pid" &>/dev/null || {
+						watchman.msg "Waiting to make sure the process had time to wite its pid..."
+						sleep 3
+
+						service_pid=`<${service_pidfile}`
+					}
+				}
+			} || {
+				service_pid="$!"
+			}
+
+			# Exit if the service instantly dies or doesn't start at all
+			kill -0 "$service_pid" &>/dev/null || {
+				watchman.err "Failed to start $service_name ($?)"
+				return 1
+			}
+
+			echo "$service_pid" > "$service_pidfile_int"
+			watchman.msg "$service_name started ($service_pid)"
+		;;
+	esac
+}
+
+watchman.respawn() {
+	while true; do
+		wait "$service_pid"
+		start
+	done
+}
+
+watchman.depends() {
+	[[ "$action" == 'start' ]] || { return 0; }
+
+	for s in "$@"; do
+		watchman "$s" status >/dev/null || {
+			watchman.msg "$service_name depends on $s, so starting ${s}..."
+			"$0" "$s" start || {
+				watchman.err "Starting $s failed, aborting."
+				return 31
+			}
+		}
+	done
+
+	return 0
+}
+
+watchman.pid_wait() {
+	counter='0'
+	echo -n "[watchman] Waiting for PID to exit: ${1}..."
+
+	while [[ "$counter" -lt "$service_stop_timeout" ]] && { kill -0 &>/dev/null "$1"; }; do
+		counter=$[counter+1]
+
+		[[ "$counter" -ge "$service_stop_timeout" ]] && {
+			echo 'timeout'
+			return 23
+		}
+
+		sleep 1
+		echo -n '.'
+	done
+
+	echo
+
+	return 0
+}
+
+watchman.stop() {
+	service_stop_timeout="${service_stop_timeout:-30}"
+
+	watchman.status || {
+		watchman.err "$service_name doesn't seem to be running"
+		return 21
+	}
+
+	case "$service_type" in
+		oneshot)
+			watchman.msg "Removing $cfg_rundir/${service_name}.done file..."
+			rm "$cfg_rundir/${service_name}.done"
+		;;
+
+		*)
+			kill "$service_pid"
+
+			kill -0 "$service_pid" &>/dev/null && {
+				watchman.pid_wait "$service_pid" || {
+					watchman.err "Failed to stop $service_name"
+					return 23
+				}
+			}
+
+			for i in "${service_pidfile}" "${service_pidfile_int}"; do
+				[[ -e "$i" ]] && {
+					rm "$i" || {
+						watchman.err "Failed to remove pidfile: $i"
+					}
+				}
+			done
+		;;
+	esac
+}
+
+watchman.status() {
+	case "$service_type" in
+		oneshot)
+			[[ -e "$cfg_rundir/${service_name}.done" ]] && { return 0; }
+		;;
+
+		*)
+			[[ "$service_pid" ]] && {
+				kill -0 "$service_pid" &>/dev/null && { return 0; }
+			}
+		;;
+	esac
+
+	return 25
+}
+
+watchman.service_usage() {
+	local valid_actions
+
+	for i in ${service_actions[@]}; do
+		type -t "$i" &>/dev/null && { valid_actions+="$i|"; }
+	done
+
+	watchman.msg "Usage: $service_name <${valid_actions%|*}>"
+}
+
+watchman.reload() {
+	watchman.status || {
+		watchman.err "$service_name is not running"
+		return 1
+	}
+
+	watchman.msg "Reloading ${service_name}..."
+	kill -1 "$service_pid"
+}
+
+watchman.logs() {
+	[[ -e "$service_logfile" ]] && {
+		watchman.msg "Output for ${service_name}:"
+		while read line; do
+			echo "$line"
+		done < "$service_logfile"
+	}
+}
+
+start() { watchman.start; return "$?"; }
+stop() { watchman.stop; return "$?"; }
+restart() { stop; start; return "$?"; }
+reload() { watchman.reload; return "$?"; }
+status() {
+	local service_status
+
+	watchman.status && {
+		service_status='running'
+	}
+
+	[[ "$service_status" ]] && {
+		[[ "$service_type" == 'oneshot' ]] && {
+			watchman.msg "$service_name is enabled"
+		} || {
+			watchman.msg "$service_name is running ($service_pid)"
+		}
+
+		return 0
+	} || {
+		watchman.msg "$service_name is down"
+	}
+
+	return 33
+}
+logs() { watchman.logs; }
+
+watch() {
+	watchman.status && {
+		watchman.err "$service_name is already running"
+		return 29
+	}
+
+	start
+	watchman.respawn
+}
+
+depends() { watchman.depends "$@"; }
+
+watchman.main() {
+	local rcode='0'
+
+	watchman.init "$@" || { return "$?"; }
+
+	[[ "${args[0]}" ]] || {
+		watchman.usage
+		return 9
+	}
+
+	service_name="${args[0]##*/}"
+	service_logfile="$cfg_logdir/${service_name}.log"
+	service_pidfile_int="$cfg_rundir/${service_name}.pid"
+
+	action="${args[1]}"
+
+	[[ -e "$service_pidfile_int" ]] && { service_pid=`<$service_pidfile_int`; }
+	[[ "$service_actions" ]] || { service_actions=( 'start' 'stop' 'restart' 'reload' 'status' ); }
+	[[ -e "$cfg_dir/groups/$service_name" ]] && { service_type='group'; }
+
+	service_type=${service_type:-single}
+
+	case "$service_type" in
+		single)
+			[[ -e "${args[0]}" ]] && {
+				service_script="${args[0]}"
+			} || {
+				[[ -e "$cfg_initdir/$service_name" ]] && {
+					service_script="$cfg_initdir/$service_name"
+				}
+			}
+
+			[[ "$service_script" ]] || {
+				watchman.err "$service_name doesn't exist in $cfg_initdir"
+				return 11
+			}
+
+			source "$service_script" || { return 13; }
+
+			[[ "$action" ]] || { watchman.service_usage; return 27; }
+
+			[[ "$service_pidfile" ]] && {
+				[[ -f "$service_pidfile" ]] && { service_pid=`<${service_pidfile}`; }
+			}
+
+			type -t "$action" &>/dev/null && {
+				"$action" || { return "$?"; }
+			} || {
+				watchman.err "Function $action is not defined for $service_name"
+				return 17
+			}
+		;;
+
+		group)
+			group_services=( `ls "$cfg_dir/groups/$service_name"` )
+
+			[[ "${group_services}" ]] || {
+				watchman.err "Group $service_name is empty"
+				return 35
+			}
+
+			for i in "${group_services[@]}"; do
+				[[ -h "$cfg_cfgdir/groups/$service_name/$i" ]] && {
+					service_script=`realpath "$cfg_cfgdir/groups/$service_name/$i"`
+					"$service_script" "$action" || { rcode="$?"; }
+				} || {
+					"$0" "$i" "$action" || { rcode="$?"; }
+				}
+			done
+		;;
+	esac
+
+	return "$rcode"
+}
+
+# Main
+watchman.main "$@"
+exit "$?"
