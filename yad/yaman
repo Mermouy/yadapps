@@ -18,4 +18,18 @@
 # | Fifth Floor, Boston, MA  02110-1301  USA
 # +------------------------------------------------------------+
 #Simple man command layout with yad
-man $1 | yad --text-info --title="Page de manuel $1" --width=900 --height=800 --button=Cancel --image=gtk-help --image-on-top --center
+brows="konqueror"
+asked="$1"
+help="Yaman need an argument to open a page"
+while [ ! -n "$asked" ]
+	do asked=$(yad --text="$help enter the command you'd like to read: " --entry --title="Yaman" --width=300 --height=150  --image=gtk-help --image-on-top --center --window-icon="gtk-help")
+	if [ "$?" = "1" ]
+		then
+		exit 1
+	fi
+done
+man $asked | yad --text-info --title="Yaman: $asked, page de manuel" --width=900 --height=800 --button=Quit:0 --button="Send to browser":1 --image=gtk-help --image-on-top --center --window-icon="gtk-help"
+if [ "$?" = "1" ]
+	then $brows "man:$asked"
+fi
+exit 0
