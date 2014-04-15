@@ -23,41 +23,81 @@
 Ino_dir="$HOME/.config/inosync-gui"
 
 ##
+AppName="inosync-gui"
 Author="MerMouY"
 Licence="GPL 3"
 Version="0.1"
-results=$(mktemp --tmpdir autostart.XXXXXXXXXX)
+results=$(mktemp --tmpdir inosync-gui.XXXXXXXXXX)
 
 ##Better not touch this or you know what u are doing
 yadopt='--title=Inosync-gui --image=gtk-dir --always-print-result --center'
 ls=`which ls`
+echo=`which echo`
 yad=`which yad`
 
-#Require: inosync.py, yad
-Required="yad inosync.py"
-for req in $Required
-	do
-	test $(which $req 2>/dev/null)
-	if [ "$?" = "1" ];then
-		echo "$req" >> .missing
-	fi
-done
-if [ -f .missing ];then exit 1;fi
+function search_dialog()
+{
+    for i in `which kdialog zenity Xdialog dialog 2> /dev/null`
+    do
+        if [ -n $i ]
+        then
+            DIALOG=$i
+            return;
+        fi
+    done
+}
 
-# Config directory
-if [ ! -f "$Ino_dir/New.conf" ];then
-	mkdir -p $Ino_dir
-	cat > "$Ino_dir/New.conf" << EOF
-wpaths = ["/var/www/"]
-rexcludes = [
-      "/localhost",
-]
-rpaths = ["/var/www/"]
-rnodes = [
-      "user1@a.mirror.com:",
-]
-EOF
+if [ -z "$yad" ]
+	then
+	search_dialog
+	if [ -z $DIALOG ]
+		then
+    	echo -e "No dialog command found.\nPlease install kdialog, zenity, xdialog or dialog for a better interface."
+	else message "The yad dialog is not present.\n$AppName should be soon adapted to $Dalog."
+	fi
 fi
+
+function message()
+{
+if [ $# -gt 1 ]
+	then
+	case "$1" in
+		"error")
+			$DIALOG $GuiName --text="<span color=\"red\"><b>$2</b></span>"  --image="$AppName\_error" --button=Quit $3
+		;;
+		"warning")
+			$DIALOG $GuiName --text="<b>$2</b>"  --image="$AppName\_warning" --button=Ok $3
+		;;
+		"*")
+		$DIALOG $GuiName --text="<span color=\"green\"><b>$1</b></span>" --image="$AppName\_ok" --button=Ok $3
+		;;
+	esac
+else
+	$DIALOG --text="<span color=\"red\"><b>$1</b></span>" --image="$scoreus_error" --button=Quit
+fi
+}
+
+
+#Require: inosync.py, yad
+# Required="yad"
+# for req in $Required
+# 	do
+# 	test $(type $req 2>/dev/null)
+# 	if [ "$?" = "1" ];then
+# 		echo "$req" >> .missing
+# 	fi
+# done
+# if [ -f .missing ];then rm .missing exit 1;fi
+
+
+### Install
+# Config directory
+function install()
+{
+if [ -n "ls $Ino_dir" ];then
+	mkdir -p $Ino_dir
+fi
+}
 
 #Sshc=$(ssh -l $USER -p $Port $Serveur $DDir)
 CreateConf() {
@@ -89,6 +129,8 @@ EOF
 }
 
 ## Choose a conf file or create new one
+function main_ui()
+{
 existing=`ls $Ino_dir/*.conf`
 for f in $existing; do
 	echo $(cat "$f" | grep -m 1 "@" | sed -e 's/,//g;s/ //g;s/"//g')
@@ -101,34 +143,34 @@ for f in $existing; do
 	if [ -n "$(cat \"$f\" | grep -i 'Inoptions =' | grep -i 'norsync')" ];then echo TRUE;else echo FALSE;fi
 	Iconpath= `cat \"$f\" | grep -i 'SyncIcon =' | cut -d : -f 2`
 	if [ -z $Iconpath ];then echo "default-icon";fi
-done | $yad --list $yadopt --button=Exit:1 --button="Create New":0 --editable \
---text="Choose a Sync configuration or create a new one:\nRight Click to add or modify.\nDouble click to run." \
+done | $yad --list $yadopt --button=Exit:1 --button="New":0 \
+--text="<b>Choose a Sync configuration to run, to edit or create a new one:</b>\n			Right Click to add or modify.\n			Double click to run." \
 --width=900 --height=500 --print-all --expand-column=0 --search-column=1 --dclick-action="inosync $Inoptions -c $Ino_dir/$NAME.conf"  \
 --column="Nodes" --column="Name" --column="Description" --column="Source Folder" --column="Activated":CHK --column="Daemon mode":CHK --column="Simulation mode":CHK --column="Icon":IMG > $results
 
 
-	if [[ ${PIPESTATUS[1]} -eq 0 ]]; then
-  	  	rm -f $Ino_dir/*.conf
-  	  	cat $results | while read line; do
-			eval $(echo $line | awk -F'|' '{printf "export RNODES=\"%s\" NAME=\"%s\" DESCRIPTION=\"%s\" SRCF=\"%s\" ACT=\"%s\" DAEMON=\"%s\" NORSYNC=\"%s\" ICON==\"%s\"", $1, $2, $3, $4, $5, $6, $7, $8}')
-        	CreateConf New
-    done
-	else
-		exit 1
-	fi
-
+if [[ ${PIPESTATUS[1]} -eq 0 ]]; then
+	rm -f $Ino_dir/*.conf
+	cat $results | while read line; do
+		eval $(echo $line | awk -F'|' '{printf "export RNODES=\"%s\" NAME=\"%s\" DESCRIPTION=\"%s\" SRCF=\"%s\" ACT=\"%s\" DAEMON=\"%s\" NORSYNC=\"%s\" ICON==\"%s\"", $1, $2, $3, $4, $5, $6, $7, $8}')
+		echo $RNODES
+		CreateConf $1
+done
+else
+	exit 1
+fi
 
 case $? in
 	1) exit 0 ;;
 	0) ConfigFileCreation=$($yad $yadopt --form --text="Edit your Synchronized Folders: " \
---field=Nodes:TXT "My Destination nodes (one by line)" \
+--field=Nodes:MFLS "My Destination nodes (one by line)" \
 --field=Name "MySync" \
 --field=Description "Your tiny description" \
 --field="Source Folder: ":DIR "$HOME" \
 --field="Choose an Icon: ":fl /usr/share/icons/gnome/ \
---field="Advanced options":CHK TRUE) > $results
+--field="Advanced options":CHK TRUE)
 
-		if [ "$?" = "1" ] || [ "$?" = "252" ] ;then bash $0;fi
+		if [ "$?" = "1" ] || [ "$?" = "252" ] ;then sh $0;fi
 
 		Istrue=`echo -e "$ConfigFileCreation" | grep '|TRUE|'`
 
@@ -137,14 +179,15 @@ case $? in
 --field="Daemonize (fork to background)":CHK FALSE \
 --field="Do not actually call rsync (simulate)":CHK FALSE \
 --field="Print debugging information":CHK FALSE \
---button=Cancel:1 --button=Create:0) >> $results
-			cat $results | while read line; do
+--button=Cancel:1 --button=Create:0)
+			echo -e "$ConfigFileCreation$ConfigFileCreation1" | sed 's/|/\n/g' | sed '/^$/d' |  while read line
+			do
 				eval $(echo $line | awk -F'|' '{printf "export RNODES=\"%s\" NAME=\"%s\" DESCRIPTION=\"%s\" SRCF=\"%s\" ACT=\"%s\" DAEMON=\"%s\" NORSYNC=\"%s\" ICON==\"%s\"", $2, $1, $3, $4, $5, $6, $7, $8}')
         	done
 			CreateConf $NAME || return 1
         	case $? in
 				0) $yad $yadopt --text="$Ino_dir/$NAME.conf Created" --buttons=Ok:$0;;
- 				*) rm $Ino_dir/$NAME.conf || yad --text=error && exit 1
+ 				*) rm $Ino_dir/$NAME.conf || message error "PLANTE" && exit 1
 					$yad $yadopt --text="<b>Cancelled by user...</b>" --no-buttons --timeout=1
 					bash $0 ;;
 
@@ -159,10 +202,20 @@ case $? in
 # 					Iconpath= `cat \"$Fcc\" | grep -i 'SyncIcon =' | cut -d : -f 2`
 # 					if [ -z $Iconpath ];then echo "default-icon";else echo "$iconpath";fi
 			esac
+		else
+			CreateConf `cat $result`
+			case $? in
+				0) $yad $yadopt --text="$Ino_dir/$NAME.conf Created" --buttons=Ok:$0;;
+				*) rm $Ino_dir/$NAME.conf
+					message error "<b>Cancelled by user...</b>" --no-buttons --timeout=1
+					bash $0 ;;
+			esac
 		fi;;
 	*) bash $0;;
 esac
 
 unset RNODES NAME DESCRIPTION SRCF ACT DAEMON NORSYNC ICON
 rm -f $results
+}
+main_ui
 exit 0
