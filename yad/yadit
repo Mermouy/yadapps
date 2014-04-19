@@ -3,8 +3,9 @@
 #Gpl3
 
 #Variables
-Difftool=kompare
+Difftool="kompare"
 #Difftool=meld
+
 yadopt="--center -always-print-result"
 if [ ! -z "$1" ];then
 	File2edit="$1"

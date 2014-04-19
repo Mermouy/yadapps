@@ -30,6 +30,7 @@ while [ ! -n "$asked" ]
 done
 man $asked | yad --text-info --title="Yaman: $asked, page de manuel" --width=900 --height=800 --button=Quit:0 --button="Send to browser":1 --image=gtk-help --image-on-top --center --window-icon="gtk-help"
 if [ "$?" = "1" ]
-	then $brows "man:$asked"
+	then
+	$brows "man:$asked" &	exit 0
 fi
 exit 0
