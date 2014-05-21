@@ -1,0 +1,16 @@
+#!/bin/bash
+# Simple yad wrapper for pachist command
+# TODO: verify pachist command exist
+arg="$1"
+
+awk -F' ' /PACMAN\].installed/'{print $1,$2,substr($0, index($0,$4))}' /var/log/pacman.log | sed -e 's/\]\|\[//g;s/ /\n/g;s/reinstalled/gtk-help/g;s/installed/gtk-close/g' | yad --list --column=Date --column=Time --column=Operation:img --column=Packages --column=Version --center --width=800 --height=800 --title="YaPacman" --image="/home/mermouy/Images/scoreus/meep_128p.jpg" --windows-icon="/home/mermouy/Images/scoreus/meep_48p.jpg" --print-column=4 --kill-parent --image-on-top --buttons-layout=spread --text="By defaut ${appname} displays installed and reinstalled apps\You may choose anther display by clicking on advanced options." --button="Advanced Options":0 --button=Cancel:1
+
+yapac='yad --text-info --title="Pacman history" --button=Reverse:0 --button=Quit:1 --height=600 --width=700 --center'
+if [[ -z "${arg}" ]]; then pachist 2>/dev/null | sed -r "s/\x1B\[([0-9]{1,3}((;[0-9]{1,3})*)?)?[m|K]/ /g" | ${yapac}; fi
+  if [[ $? = 0 ]]; then pachist | sort | ${yapac}
+  else exit 0
+  fi
+elif [[ $1 = text ]]; then pachist $2 | sort | yad --text="{}" --title="Pacman history" --button=Reverse:0 --button=Quit:1 --height=600 --width=700 --center
+else pachist -n $1 | "${yapac}"
+fi
+exit 0

@@ -34,6 +34,7 @@ yadopt='--title=Inosync-gui --image=firefox --always-print-result --center --win
 ls=`which ls`
 echo=`which echo`
 yad=`which yad`
+inosync="/usr/local/bin/inosync.py"
 
 #Fifo
 PIPE=$(mktemp -u --tmpdir ${0##*/}.XXXXXXXX)
@@ -91,6 +92,18 @@ if [ -n "ls $Ino_dir" ];then
 fi
 }
 
+function runsync()
+{
+if [ "$#" = "0" ]
+	then
+	message error "Must be arguments to this command"
+	exit 1
+fi
+echo "$@"
+exit 0
+}
+export -f runsync
+
 #Sshc=$(ssh -l $USER -p $Port $Serveur $DDir)
 CreateConf() {
 Name="$1"
@@ -131,7 +144,7 @@ let a++
 echo $a
 echo "true"
 	echo `basename "$f" | cut -d "." -f 1`
-	echo $(more "$existing" | /usr/bin/grep rpaths | cut -d "\"" -f2)
+	echo $(more "$f" | /usr/bin/grep rpaths | cut -d "\"" -f2)
 	echo $(more "$f" | grep -i 'SyncDescription =' | cut -d "\"" -f 2)
 	echo $(more "$f" | grep -i 'wpaths =' "$f" | cut -d \" -f 2)
 	if [ -n "$(more $f | grep -i 'Inoptions =' | grep -i 'daemon')" ];then echo TRUE;else echo FALSE;fi
@@ -142,7 +155,7 @@ echo "true"
 	fi
 done | $yad --list $yadopt --button=Exit:1 --button="New":0 \
 --text="<b>Choose a Sync configuration to run, to edit or create a new one:</b>\n			Right Click to add or modify.\n			Double click to run." \
---width=900 --height=500 --print-all --expand-column=0 --search-column=1 --dclick-action="inosync $Inoptions -c $Ino_dir/$NAME.conf"  \
+--width=900 --height=500 --print-all --expand-column=0 --search-column=1 --dclick-action='bash -c "EditData %s"'  \
 --column="Id" --column="Watched: ":CHK  --column="Name: " --column="Nodes: " --column="Description: " --column="Source Folder: " --column="Daemon mode: ":CHK --column="Simulation mode: ":CHK --column="Icon: ":IMG > temp
 }
 
@@ -173,9 +186,11 @@ SyncIcon = "@ICON"
 SyncDescription = "@DESCRIPTION"
 EOF
 }
+export -f CreateNewConf
 
 function NewData()
 {
+CreateNewConf
 $yad $yadopt --form --text="<b>Edit your Synchronized Folders: </b>" \
 --field="Name of this Synchronization: " "MySync" \
 --field="Folder to watch and Sync from: ":dir "$HOME" \
@@ -188,18 +203,47 @@ $yad $yadopt --form --text="<b>Edit your Synchronized Folders: </b>" \
 if [ "$?" = "1" ] || [ "$?" = "252" ]; then
 	exit 0
 else
-	cat $Ino_dir/.tmp | while read line; do
-	eval $(echo $line | awk -F'|' '{printf "export  NAME=\"%s\" SRCF=\"%s\" RNODES=\"%s\" DESCRIPTION=\"%s\" ICON=\"%s\"", $1, $2, $3, $4, $5}')>&3
-	if [ "$NAME" = "MySync" ] || [ "$RNODES" = "path/to/dir (All at once)" ]  || [ "$DESCRIPTION" = "Your tiny description" ] || [ -z "$DESCRIPTION" ] || ( [ -s "$ICON" ] && [ "`file -b -i \"$ICON\"`" = "image/jpeg" ])
-		then message error "You should at least change somr parameters..."
-		exit 0
-	fi
+	eval $(echo `cat $Ino_dir/.tmp` | awk -F'|' '{printf "export  NAME=\"%s\" SRCF=\"%s\" RNODES=\"%s\" DESCRIPTION=\"%s\" ICON=\"%s\"", $1, $2, $3, $4, $5}')>&3
 	cat $Ino_dir/.temp.conf  | sed "s|@RNODES|$NODES|" | sed "s|@DESCRIPTION|$DESCRIPTION|" | sed "s|@SRCF|$SRCF|" | sed "s|@ICON|$ICON|" > $Ino_dir/$NAME.conf
-	cat $Ino_dir/$NAME.conf
-	read
-done
 fi
 }
+
+function EditData()
+{
+f="$Ino_dir/$1.conf"
+if [ -s "$f" ]
+	then
+	CreateNewConf
+#--field="Advanced options":CHK TRUE
+	ACT=`echo "true"`
+	NAME=`echo $(basename "$f" | cut -d "." -f 1)`
+	RPATH=`echo $(more "$f" | /usr/bin/grep rpaths | cut -d "\"" -f2)`
+	DESC=`echo $(more "$f" | grep -i 'SyncDescription =' | cut -d "\"" -f 2)`
+	WPATH=`echo $(more "$f" | grep -i 'wpaths =' "$f" | cut -d \" -f 2)`
+	DAEMON=`if [ -n "$(more $f | grep -i 'Inoptions =' | grep -i 'daemon')" ];then echo TRUE;else echo FALSE;fi`
+	NORSYNC=`if [ -n "$(more $f | grep -i 'Inoptions =' | grep -i 'norsync')" ];then echo TRUE;else echo FALSE;fi`
+	Iconpath=$(more $f | grep -i 'SyncIcon =' | cut -d "\"" -f 2)
+	if [ -z $Iconpath ];then ICONPATH="default-icon"
+	else ICONPATH="$Iconpath"
+	fi
+$yad $yadopt --form --text="<b>Edit your Synchronized Folders: </b>" \
+--field="Name of this Synchronization: " "$NAME" \
+--field="Folder to watch and Sync from: ":dir "$RPATH" \
+--field="Folder(s) to sync to (Nodes): ":dir "$WPATH" \
+--field="Description you may need: " "$DESC" \
+--field="An Icon may also help: ":fl "$ICONPATH" > $Ino_dir/.tmp
+
+	if [ "$?" = "1" ] || [ "$?" = "252" ]; then
+		rm -f $Ino_dir/.tmp && exit 1
+	else
+		eval $(echo  `cat $Ino_dir/.tmp` | awk -F'|' '{printf "export  NAME=\"%s\" SRCF=\"%s\" RNODES=\"%s\" DESCRIPTION=\"%s\" ICON=\"%s\"", $1, $2, $3, $4, $5}')>&3
+		cat $Ino_dir/.temp.conf  | sed "s|@RNODES|$NODES|" | sed "s|@DESCRIPTION|$DESCRIPTION|" | sed "s|@SRCF|$SRCF|" | sed "s|@ICON|$ICON|" > $Ino_dir/$NAME.conf
+		rm -f $Ino_dir/.tmp
+	fi
+else exit 1
+fi
+}
+export -f EditData
 
 # test(){
 # case $? in
@@ -259,16 +303,13 @@ fi
 # unset RNODES NAME DESCRIPTION SRCF ACT DAEMON NORSYNC ICON
 # rm -f $results
 # }
-while :
-do
-main_ui
-if [ "$?" = "1" ]
-	then
-	exit 1
-else
-	CreateNewConf
-	NewData
-	yad $yadopts --text="Added New configuration in:
-	<tt>$NAME</tt>\n" --timeout=2 --no-buttons
-fi
-done
+
+case "$1" in
+	"") main_ui
+		rm -f temp
+		exit 0;;
+	"--edit") EditData $2
+		rm -f temp
+		exit 0;;
+	"*") exit 1;;
+esac

@@ -22,15 +22,16 @@ brows="konqueror"
 asked="$1"
 help="Yaman need an argument to open a page"
 while [ ! -n "$asked" ]
-	do asked=$(yad --text="$help enter the command you'd like to read: " --entry --title="Yaman" --width=300 --height=150  --image=gtk-help --image-on-top --center --window-icon="gtk-help")
+	do asked=$(yad --text="$help enter the command you'd like to read: " --entry --title="Yaman" --width=300 --height=150  --image=gtk-help --image-on-top --center --window-icon="gtk-help" --separator="\n")
 	if [ "$?" = "1" ]
 		then
 		exit 1
 	fi
 done
 man $asked | yad --text-info --title="Yaman: $asked, page de manuel" --width=900 --height=800 --button=Quit:0 --button="Send to browser":1 --image=gtk-help --image-on-top --center --window-icon="gtk-help"
-if [ "$?" = "1" ]
-	then
-	$brows "man:$asked" &	exit 0
-fi
+   case $? in
+    1) $brows "man:$asked" & exit 0 ;;
+    252|0) exit 0 ;;
+  esac
+done
 exit 0
