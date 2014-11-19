@@ -1,0 +1,26 @@
+#! /bin/bash
+#Script de déconnexion/redémarrage/veille etc basé sur yad
+# Script source: http://www.taringa.net/posts/linux/18209521/Script-para-Logout-con-Yad.html
+VAR=`yad --width 300 --entry --title "System Logout" 
+          --image=gnome-shu***                        
+          --button="gtk-ok:0" --button="gtk-close:1"    
+          --text "Choose action:"                       
+          --entry-text                                  
+          "Power Off" "Reboot" "Suspend" "Logout"`
+         
+            if echo "$VAR" | grep "Power Off"; then
+                       cmd= dbus-send --system --print-reply --dest="org.freedesktop.ConsoleKit" /org/freedesktop/ConsoleKit/Manager org.freedesktop.ConsoleKit.Manager.Stop
+                fi
+                
+                if echo "$VAR" | grep "Reboot"; then
+                      cmd= dbus-send --system --print-reply --dest="org.freedesktop.ConsoleKit" /org/freedesktop/ConsoleKit/Manager org.freedesktop.ConsoleKit.Manager.Restart
+                fi
+                
+                if echo "$VAR" | grep "Suspend"; then
+                       cmd= dbus-send --system --print-reply --dest="org.freedesktop.UPower" /org/freedesktop/UPower org.freedesktop.UPower.Suspend   
+                    fi
+                
+                if echo "$VAR" | grep "Logout"; then
+                      cmd= openbox --exit
+                fi
+exit 0;  
