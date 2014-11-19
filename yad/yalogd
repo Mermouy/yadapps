@@ -1,0 +1,45 @@
+# #! /bin/bash
+# +------------------------------------------------------------+
+# | MerMouY mermouy[at]gmail[dot]com
+# |
+# | This program is free software; you can redistribute it and/or
+# | modify it under the terms of the GNU General Public License
+# | as published by the Free Software Foundation; either version
+# | 3 of the License, or (at your option) any later version.
+# |
+# | This program is distributed in the hope that it will be useful,
+# | but WITHOUT ANY WARRANTY; without even the implied warranty
+# | of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+# | See the GNU General Public License for more details.
+# |
+# | You should have received a copy of the GNU General Public
+# | License along with this program; if not, write to the
+# | Free Software Foundation, Inc., 51 Franklin St,
+# | Fifth Floor, Boston, MA  02110-1301  USA
+# +------------------------------------------------------------+
+#
+# Little yad powered script to have a quick look at systemd message
+
+# Commande to run
+Jcmd="journalctl -b"
+
+# Parser for yad layout
+PARSER='{font=""; color="#FFFFFF"}; \
+/kernel/ {font="italic"}; \
+/warn/ {color="#FFF4B8"}; \
+/error/ {color="#FFD0D8"}; \
+OFS="\n" {print $1 " " $2, $3, $4, substr($5,0,index($5,":")-1), \
+substr($0,index($0,$6)), font, color; fflush()}'
+
+# Systemd introduction message
+Jrn_message=$(journalctl -b | head -n 1)
+
+# Running command and sending output to yad
+$Jcmd | sed '1d' | awk "$PARSER" | \
+yad --title="Log viewer" --window-icon=logviewer \
+    --button=gtk-close --geometry 1000x850 \
+    --list --text="<b>Content of \'$Jcmd\':</b>\n$Jrn_message" \
+    --column Date --column Time --column Host \
+    --column Tag --column Message:TIP \
+    --column @font@ --column @back@
+exit $?
